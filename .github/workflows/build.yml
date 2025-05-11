@@ -151,7 +151,7 @@ jobs:
           
           ## Lưu ý:
           
-          - Ứng dụng này yêu cầu tvOS 17.0 trở lên
+          - Ứng dụng này yêu cầu tvOS 14.0 trở lên
           - Bạn cần có tài khoản Apple Developer để cài đặt
           EOL
           
