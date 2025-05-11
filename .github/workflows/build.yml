@@ -16,7 +16,13 @@ jobs:
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable  # Không cần xcodes trong Fastfile nữa
+          xcode-version: '15.2'  # Chỉ định phiên bản cụ thể
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
 
       - name: Set up CocoaPods
         uses: maxim-lobanov/setup-cocoapods@v1
@@ -26,10 +32,43 @@ jobs:
       - name: Install dependencies
         run: pod install
 
+      - name: Disable code signing in project
+        run: |
+          /usr/libexec/PlistBuddy -c "Delete :ProvisioningStyle" ./Apple-TV-Player.xcodeproj/project.pbxproj || true
+          /usr/libexec/PlistBuddy -c "Add :ProvisioningStyle string Manual" ./Apple-TV-Player.xcodeproj/project.pbxproj
+          # Vô hiệu hóa code signing requirements trong project
+          sed -i '' 's/CODE_SIGN_IDENTITY = ".*"/CODE_SIGN_IDENTITY = ""/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
+          sed -i '' 's/DEVELOPMENT_TEAM = ".*"/DEVELOPMENT_TEAM = ""/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
+          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = ".*"/PROVISIONING_PROFILE_SPECIFIER = ""/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
+          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
+
       - name: Build IPA with Fastlane
         run: |
           bundle install -j 4
-          bundle exec fastlane make_ipa  # Đảm bảo lane này tồn tại
+          bundle exec fastlane make_ipa
+        env:
+          FASTLANE_SKIP_UPDATE_CHECK: 1
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 180
+          FASTLANE_XCODE_LIST_TIMEOUT: 180
+          FASTLANE_SKIP_CERT_VERIFICATION: 1
+
+      - name: Rename and prepare artifact
+        run: |
+          # Đảm bảo IPA đã được tạo
+          if [ -f "Apple-TV-Player.ipa" ]; then
+            mkdir -p ./artifacts
+            cp Apple-TV-Player.ipa ./artifacts/MonPlayer-tvOS-unsigned.ipa
+            # Tạo readme với hướng dẫn
+            echo "# MonPlayer for tvOS" > ./artifacts/README.md
+            echo "Đây là file IPA không ký. Để cài đặt, bạn cần ký lại ứng dụng với certificate của mình." >> ./artifacts/README.md
+            echo "## Hướng dẫn cài đặt:" >> ./artifacts/README.md
+            echo "1. Sử dụng Xcode để ký lại ứng dụng với tài khoản Apple Developer của bạn" >> ./artifacts/README.md
+            echo "2. Hoặc sử dụng công cụ như Sideloadly để cài đặt lên Apple TV" >> ./artifacts/README.md
+          else
+            echo "Không tìm thấy file IPA, có thể build đã thất bại"
+            exit 1
+          fi
 
       - name: Clean old artifacts (only on master push)
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
@@ -39,13 +78,15 @@ jobs:
             const { owner, repo } = context.repo
             const res = await github.rest.actions.listArtifactsForRepo({ owner, repo })
             for (const artifact of res.data.artifacts) {
-              await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id })
+              if (artifact.name === 'monplayer-tvos-unsigned') {
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id })
+              }
             }
 
       - name: Upload latest artifact (only on master push)
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: master-unsigned.ipa
-          path: Apple-TV-Player.ipa
+          name: monplayer-tvos-unsigned
+          path: ./artifacts/
           retention-days: 30
