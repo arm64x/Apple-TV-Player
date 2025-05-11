@@ -32,59 +32,133 @@ jobs:
       - name: Install dependencies
         run: pod install
 
-      - name: Disable code signing in project
+      - name: Create xcconfig for build without signing
         run: |
-          /usr/libexec/PlistBuddy -c "Delete :ProvisioningStyle" ./Apple-TV-Player.xcodeproj/project.pbxproj || true
-          /usr/libexec/PlistBuddy -c "Add :ProvisioningStyle string Manual" ./Apple-TV-Player.xcodeproj/project.pbxproj
-          # Vô hiệu hóa code signing requirements trong project
-          sed -i '' 's/CODE_SIGN_IDENTITY = ".*"/CODE_SIGN_IDENTITY = ""/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
-          sed -i '' 's/DEVELOPMENT_TEAM = ".*"/DEVELOPMENT_TEAM = ""/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
-          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = ".*"/PROVISIONING_PROFILE_SPECIFIER = ""/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
-          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
-          sed -i '' 's/CODE_SIGNING_ALLOWED = YES/CODE_SIGNING_ALLOWED = NO/' ./Apple-TV-Player.xcodeproj/project.pbxproj || true
+          cat > NoSigning.xcconfig << EOL
+          CODE_SIGN_IDENTITY = 
+          CODE_SIGNING_REQUIRED = NO
+          CODE_SIGNING_ALLOWED = NO
+          CODE_SIGN_ENTITLEMENTS = 
+          PROVISIONING_PROFILE = 
+          EOL
+          echo "Created NoSigning.xcconfig"
 
-      - name: Build IPA with Fastlane
+      - name: Modify project.pbxproj to disable signing
         run: |
-          bundle install -j 4
-          bundle exec fastlane make_ipa
-        env:
-          FASTLANE_SKIP_UPDATE_CHECK: 1
-          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 180
-          FASTLANE_XCODE_LIST_TIMEOUT: 180
-          FASTLANE_SKIP_CERT_VERIFICATION: 1
+          find . -name "project.pbxproj" -exec sed -i '' 's/CODE_SIGN_IDENTITY = ".*"/CODE_SIGN_IDENTITY = ""/' {} \;
+          find . -name "project.pbxproj" -exec sed -i '' 's/DEVELOPMENT_TEAM = ".*"/DEVELOPMENT_TEAM = ""/' {} \;
+          find . -name "project.pbxproj" -exec sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = ".*"/PROVISIONING_PROFILE_SPECIFIER = ""/' {} \;
+          # Thêm các thiết lập vô hiệu hóa code signing
+          find . -name "project.pbxproj" -exec sed -i '' 's/buildSettings = {/buildSettings = {\n\t\t\t\tCODE_SIGNING_REQUIRED = NO;/' {} \;
+          find . -name "project.pbxproj" -exec sed -i '' 's/buildSettings = {/buildSettings = {\n\t\t\t\tCODE_SIGNING_ALLOWED = NO;/' {} \;
+          echo "Modified project.pbxproj to disable code signing"
 
-      - name: Rename and prepare artifact
+      - name: Install bundler
         run: |
-          # Đảm bảo IPA đã được tạo
-          if [ -f "Apple-TV-Player.ipa" ]; then
-            mkdir -p ./artifacts
-            cp Apple-TV-Player.ipa ./artifacts/MonPlayer-tvOS-unsigned.ipa
-            # Tạo readme với hướng dẫn
-            echo "# MonPlayer for tvOS" > ./artifacts/README.md
-            echo "Đây là file IPA không ký. Để cài đặt, bạn cần ký lại ứng dụng với certificate của mình." >> ./artifacts/README.md
-            echo "## Hướng dẫn cài đặt:" >> ./artifacts/README.md
-            echo "1. Sử dụng Xcode để ký lại ứng dụng với tài khoản Apple Developer của bạn" >> ./artifacts/README.md
-            echo "2. Hoặc sử dụng công cụ như Sideloadly để cài đặt lên Apple TV" >> ./artifacts/README.md
-          else
-            echo "Không tìm thấy file IPA, có thể build đã thất bại"
-            exit 1
+          gem install bundler
+          bundle config path vendor/bundle
+          bundle install --jobs 4 --retry 3
+
+      - name: Create direct xcodebuild command for tvOS IPA
+        run: |
+          mkdir -p build
+          
+          # Archive app
+          xcodebuild -workspace Apple-TV-Player.xcworkspace \
+                    -scheme Apple-TV-Player \
+                    -destination 'generic/platform=tvOS' \
+                    -xcconfig NoSigning.xcconfig \
+                    -archivePath build/Apple-TV-Player.xcarchive \
+                    -allowProvisioningUpdates \
+                    CODE_SIGN_IDENTITY="" \
+                    CODE_SIGNING_REQUIRED=NO \
+                    CODE_SIGNING_ALLOWED=NO \
+                    ONLY_ACTIVE_ARCH=NO \
+                    clean archive || true
+          
+          # Tạo export options
+          cat > build/ExportOptions.plist << EOL
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>ad-hoc</string>
+              <key>compileBitcode</key>
+              <false/>
+              <key>signingStyle</key>
+              <string>manual</string>
+          </dict>
+          </plist>
+          EOL
+          
+          # Export IPA
+          xcodebuild -exportArchive \
+                    -archivePath build/Apple-TV-Player.xcarchive \
+                    -exportPath build/ \
+                    -exportOptionsPlist build/ExportOptions.plist \
+                    CODE_SIGN_IDENTITY="" \
+                    CODE_SIGNING_REQUIRED=NO \
+                    CODE_SIGNING_ALLOWED=NO || true
+          
+          # Tạo IPA thủ công nếu cần
+          if [ ! -f "build/Apple-TV-Player.ipa" ]; then
+            echo "Thử tạo IPA thủ công"
+            cd build/Apple-TV-Player.xcarchive/Products/Applications/
+            mkdir -p Payload
+            cp -r *.app Payload/
+            zip -r ../../../MonPlayer-tvOS-unsigned.ipa Payload
+            cd -
+            ls -la build/
           fi
 
-      - name: Clean old artifacts (only on master push)
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            const res = await github.rest.actions.listArtifactsForRepo({ owner, repo })
-            for (const artifact of res.data.artifacts) {
-              if (artifact.name === 'monplayer-tvos-unsigned') {
-                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id })
-              }
-            }
+      - name: Try Fastlane build if direct build fails
+        run: |
+          if [ ! -f "build/Apple-TV-Player.ipa" ] && [ ! -f "build/MonPlayer-tvOS-unsigned.ipa" ]; then
+            echo "Thử build bằng Fastlane"
+            bundle exec fastlane make_ipa
+          else
+            echo "Đã tạo được IPA, bỏ qua Fastlane"
+          fi
 
-      - name: Upload latest artifact (only on master push)
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+      - name: Prepare artifacts
+        run: |
+          mkdir -p ./artifacts
+          
+          # Tìm IPA file
+          if [ -f "build/Apple-TV-Player.ipa" ]; then
+            cp build/Apple-TV-Player.ipa ./artifacts/MonPlayer-tvOS-unsigned.ipa
+          elif [ -f "build/MonPlayer-tvOS-unsigned.ipa" ]; then
+            cp build/MonPlayer-tvOS-unsigned.ipa ./artifacts/
+          elif [ -f "Apple-TV-Player.ipa" ]; then
+            cp Apple-TV-Player.ipa ./artifacts/MonPlayer-tvOS-unsigned.ipa
+          else
+            echo "KHÔNG TÌM THẤY FILE IPA - BUILD THẤT BẠI"
+            find . -name "*.ipa"
+            exit 1
+          fi
+          
+          # Tạo README
+          cat > ./artifacts/README.md << EOL
+          # MonPlayer for tvOS
+          
+          Đây là file IPA không ký. Để cài đặt, bạn cần ký lại ứng dụng với certificate của mình.
+          
+          ## Hướng dẫn cài đặt:
+          
+          1. Sử dụng Xcode để ký lại ứng dụng với tài khoản Apple Developer của bạn
+          2. Hoặc sử dụng công cụ như Sideloadly để cài đặt lên Apple TV
+          
+          ## Lưu ý:
+          
+          - Ứng dụng này yêu cầu tvOS 17.0 trở lên
+          - Bạn cần có tài khoản Apple Developer để cài đặt
+          EOL
+          
+          echo "Đã chuẩn bị xong artifacts"
+          ls -la ./artifacts/
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: monplayer-tvos-unsigned
