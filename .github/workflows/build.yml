@@ -12,40 +12,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - uses: maxim-lobanov/setup-xcode@v1
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
-      - name: setup-cocoapods
+          xcode-version: latest-stable  # Không cần xcodes trong Fastfile nữa
+
+      - name: Set up CocoaPods
         uses: maxim-lobanov/setup-cocoapods@v1
         with:
           podfile-path: Podfile.lock
+
       - name: Install dependencies
         run: pod install
-      - name: Build
-        env:
-          scheme: ${{ 'default' }}
-          platform: ${{ 'iOS Simulator' }}
+
+      - name: Build IPA with Fastlane
         run: |
           bundle install -j 4
-          bundle exec fastlane make_ipa
+          bundle exec fastlane make_ipa  # Đảm bảo lane này tồn tại
 
-      - name: List, filter and delete artifacts
+      - name: Clean old artifacts (only on master push)
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         uses: actions/github-script@v6
-        id: artifact
         with:
           script: |
-            const { owner, repo } = context.issue
-            
-            const res = await github.rest.actions.listArtifactsForRepo({
-              owner,
-              repo,
-            })
-            
-            res.data.artifacts
-              .forEach(({ id }) => { github.rest.actions.deleteArtifact({ owner, repo, artifact_id: id, }) })
+            const { owner, repo } = context.repo
+            const res = await github.rest.actions.listArtifactsForRepo({ owner, repo })
+            for (const artifact of res.data.artifacts) {
+              await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id })
+            }
 
-      - name: Upload latest artifact
+      - name: Upload latest artifact (only on master push)
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
