@@ -1,13 +1,55 @@
+default_platform(:ios)
 
-lane :make_ipa do |options|
-  # set any Xcode version you comfortable with.
-  # https://docs.fastlane.tools/actions/xcodes/
-  # xcodes(version: "16.2", select_for_current_build_only: true)
-  build_app(
-    scheme: "Apple-TV-Player",
-    workspace: "Apple-TV-Player.xcworkspace",
-    export_method: "development",
-    configuration: "Release",
-    xcargs: "-allowProvisioningUpdates"
-  )
+platform :ios do
+  lane :make_ipa do |options|
+    # Tắt tự động ký và xử lý chứng chỉ
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: "Apple-TV-Player.xcodeproj",
+      code_sign_identity: "", # Để trống để không ký
+      bundle_identifier: "mike.house.com.Apple-TV-Player",
+      profile_name: "",
+      team_id: "",
+      targets: ["Apple-TV-Player", "Channels"] # Thêm tất cả targets của bạn
+    )
+    
+    # Tạo một file xcconfig tạm thời để tắt code signing
+    create_xcconfig
+    
+    begin
+      # Build app với export method ad-hoc (không cần profiles cụ thể)
+      gym(
+        scheme: "Apple-TV-Player",
+        workspace: "Apple-TV-Player.xcworkspace",
+        export_method: "ad-hoc", # thay đổi từ development sang ad-hoc
+        skip_profile_detection: true,
+        skip_package_ipa: false,
+        skip_codesigning: true, # Bỏ qua code signing
+        export_options: {
+          method: "ad-hoc",
+          signingStyle: "manual",
+          provisioningProfiles: {},
+          compileBitcode: false,
+          thinning: "<none>"
+        },
+        xcconfig: "FastlaneNoSigning.xcconfig", # Sử dụng xcconfig để tắt signing
+        clean: true
+      )
+    ensure
+      # Xóa file xcconfig sau khi build
+      File.delete("FastlaneNoSigning.xcconfig") if File.exist?("FastlaneNoSigning.xcconfig")
+    end
+  end
+  
+  # Helper để tạo xcconfig
+  private_lane :create_xcconfig do
+    File.write("FastlaneNoSigning.xcconfig", <<~EOS
+      CODE_SIGN_IDENTITY = 
+      CODE_SIGNING_REQUIRED = NO
+      CODE_SIGNING_ALLOWED = NO
+      CODE_SIGN_ENTITLEMENTS = 
+      PROVISIONING_PROFILE = 
+    EOS
+    )
+  end
 end
