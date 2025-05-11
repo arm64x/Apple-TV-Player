@@ -107,14 +107,14 @@ jobs:
             cd build/Apple-TV-Player.xcarchive/Products/Applications/
             mkdir -p Payload
             cp -r *.app Payload/
-            zip -r ../../../MonPlayer-tvOS-unsigned.ipa Payload
+            zip -r ../../../Apple-TV-Player-unsigned.ipa Payload
             cd -
             ls -la build/
           fi
 
       - name: Try Fastlane build if direct build fails
         run: |
-          if [ ! -f "build/Apple-TV-Player.ipa" ] && [ ! -f "build/MonPlayer-tvOS-unsigned.ipa" ]; then
+          if [ ! -f "build/Apple-TV-Player.ipa" ] && [ ! -f "build/Apple-TV-Player-unsigned.ipa" ]; then
             echo "Thử build bằng Fastlane"
             bundle exec fastlane make_ipa
           else
@@ -127,11 +127,11 @@ jobs:
           
           # Tìm IPA file
           if [ -f "build/Apple-TV-Player.ipa" ]; then
-            cp build/Apple-TV-Player.ipa ./artifacts/MonPlayer-tvOS-unsigned.ipa
-          elif [ -f "build/MonPlayer-tvOS-unsigned.ipa" ]; then
-            cp build/MonPlayer-tvOS-unsigned.ipa ./artifacts/
+            cp build/Apple-TV-Player.ipa ./artifacts/Apple-TV-Player-unsigned.ipa
+          elif [ -f "build/Apple-TV-Player-unsigned.ipa" ]; then
+            cp build/Apple-TV-Player-unsigned.ipa ./artifacts/
           elif [ -f "Apple-TV-Player.ipa" ]; then
-            cp Apple-TV-Player.ipa ./artifacts/MonPlayer-tvOS-unsigned.ipa
+            cp Apple-TV-Player.ipa ./artifacts/Apple-TV-Player-unsigned.ipa
           else
             echo "KHÔNG TÌM THẤY FILE IPA - BUILD THẤT BẠI"
             find . -name "*.ipa"
@@ -140,7 +140,7 @@ jobs:
           
           # Tạo README
           cat > ./artifacts/README.md << EOL
-          # MonPlayer for tvOS
+          # Apple-TV-Player
           
           Đây là file IPA không ký. Để cài đặt, bạn cần ký lại ứng dụng với certificate của mình.
           
@@ -161,6 +161,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: monplayer-tvos-unsigned
+          name: apple-tv-player-unsigned
           path: ./artifacts/
           retention-days: 30
