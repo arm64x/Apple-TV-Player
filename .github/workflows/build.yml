@@ -27,7 +27,7 @@ jobs:
           platform: ${{ 'iOS Simulator' }}
         run: |
           bundle install -j 4
-          bundle exec fastlane build_unsign_ipa
+          bundle exec fastlane make_ipa
 
       - name: List, filter and delete artifacts
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
