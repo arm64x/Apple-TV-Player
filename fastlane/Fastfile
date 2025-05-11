@@ -13,43 +13,54 @@ platform :ios do
       targets: ["Apple-TV-Player", "Channels"] # Thêm tất cả targets của bạn
     )
     
-    # Tạo một file xcconfig tạm thời để tắt code signing
-    create_xcconfig
+    # Tạo file export_options.plist
+    create_export_options_plist
     
-    begin
-      # Build app với export method ad-hoc (không cần profiles cụ thể)
-      gym(
-        scheme: "Apple-TV-Player",
-        workspace: "Apple-TV-Player.xcworkspace",
-        export_method: "ad-hoc", # thay đổi từ development sang ad-hoc
-        skip_profile_detection: true,
-        skip_package_ipa: false,
-        skip_codesigning: true, # Bỏ qua code signing
-        export_options: {
-          method: "ad-hoc",
-          signingStyle: "manual",
-          provisioningProfiles: {},
-          compileBitcode: false,
-          thinning: "<none>"
-        },
-        xcconfig: "FastlaneNoSigning.xcconfig", # Sử dụng xcconfig để tắt signing
-        clean: true
-      )
-    ensure
-      # Xóa file xcconfig sau khi build
-      File.delete("FastlaneNoSigning.xcconfig") if File.exist?("FastlaneNoSigning.xcconfig")
-    end
+    # Build app với các tùy chọn không ký
+    gym(
+      scheme: "Apple-TV-Player",
+      workspace: "Apple-TV-Player.xcworkspace",
+      export_method: "ad-hoc", # thay đổi từ development sang ad-hoc
+      skip_profile_detection: true,
+      skip_codesigning: true, # Bỏ qua code signing
+      skip_package_dependencies_resolution: true,
+      xcargs: "-allowProvisioningUpdates CODE_SIGN_IDENTITY=\"\" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO",
+      export_options: {
+        method: "ad-hoc",
+        signingStyle: "manual",
+        compileBitcode: false,
+        thinning: "<none>"
+      },
+      clean: true
+    )
   end
   
-  # Helper để tạo xcconfig
-  private_lane :create_xcconfig do
-    File.write("FastlaneNoSigning.xcconfig", <<~EOS
-      CODE_SIGN_IDENTITY = 
-      CODE_SIGNING_REQUIRED = NO
-      CODE_SIGNING_ALLOWED = NO
-      CODE_SIGN_ENTITLEMENTS = 
-      PROVISIONING_PROFILE = 
-    EOS
-    )
+  # Helper để tạo export_options.plist
+  private_lane :create_export_options_plist do
+    # Tạo export_options.plist nếu chưa tồn tại
+    unless File.exist?("ExportOptions.plist")
+      File.write("ExportOptions.plist", <<~EOS
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>ad-hoc</string>
+    <key>compileBitcode</key>
+    <false/>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>thinning</key>
+    <string>&lt;none&gt;</string>
+</dict>
+</plist>
+EOS
+      )
+      puts "Created ExportOptions.plist file"
+    end
   end
 end
