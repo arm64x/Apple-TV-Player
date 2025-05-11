@@ -47,7 +47,7 @@ jobs:
 
       - name: Upload latest artifact
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: master-unsigned.ipa
           path: Apple-TV-Player.ipa
